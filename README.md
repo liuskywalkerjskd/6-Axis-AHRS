@@ -64,7 +64,7 @@ The core idea is to blend the primary AHRS output with a parallel Madgwick IMU s
 ### Modern C++ Version (readable_cpp/)
 
 ```cpp
-#include "fusion_ahrs.hpp"
+#include "Fusion_AHRS.hpp"
 
 int main() {
     fusion::Ahrs ahrs;

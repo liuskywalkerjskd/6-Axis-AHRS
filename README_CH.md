@@ -70,7 +70,7 @@
 ### 现代C++版本（readable_cpp/）
 
 ```cpp
-#include "fusion_ahrs.hpp"
+#include "Fusion_AHRS.hpp"
 
 int main() {
     fusion::Ahrs ahrs;
