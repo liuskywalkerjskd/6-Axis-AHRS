@@ -20,6 +20,11 @@ MadgwickParam madgwickParam;
 #define INITIAL_GAIN (10.0f)
 
 /**
+ * @brief Duration of initialization phase (seconds)
+ */
+#define INITIALISATION_PERIOD (3.0f)
+
+/**
  * @brief Cutoff frequency for gyroscope bias correction (Hz)
  */
 #define CUTOFF_FREQUENCY (0.02f)
@@ -80,8 +85,8 @@ void FusionAhrsInitialise(FusionAhrs *const ahrs) {
     const FusionAhrsSettings settings = {
             .convention = FusionConventionNwu,  // Default to NWU coordinate system
             .gain = 0.5f,                      // Default gain value
-            .gyroscopeRange = 2000.0f,         // Default gyroscope range 2000¡ã/s
-            .accelerationRejection = 30.0f,    // Default acceleration rejection threshold 30¡ã
+            .gyroscopeRange = 2000.0f,         // Default gyroscope range 2000ï¿½ï¿½/s
+            .accelerationRejection = 30.0f,    // Default acceleration rejection threshold 30ï¿½ï¿½
             .recoveryTriggerPeriod = 0,        // Default recovery trigger period
     };
     FusionAhrsSetSettings(ahrs, &settings);
@@ -100,6 +105,28 @@ void FusionAhrsReset(FusionAhrs *const ahrs) {
     ahrs->accelerometerIgnored = false;             // Reset accelerometer ignore flag
     ahrs->accelerationRecoveryTrigger = 0;          // Reset acceleration recovery trigger
     ahrs->accelerationRecoveryTimeout = ahrs->settings.recoveryTriggerPeriod; // Reset timeout
+    ahrs->rampedGain = INITIAL_GAIN; // Set initial ramped gain
+    ahrs->initialising = true; // Set initializing flag
+    ahrs->rampedGainStep = (INITIAL_GAIN - ahrs->settings.gain) / INITIALISATION_PERIOD; // Set ramping step
+
+    madgwickParam.beta = BETA_DEF; // 0.1f
+    madgwickParam.invSampleFreq = 1.0f / SAMPLE_FREQ_DEF; // 1.0 / 500.0
+    madgwickParam.q0 = 1.0f;
+    madgwickParam.q1 = 0.0f;
+    madgwickParam.q2 = 0.0f;
+    madgwickParam.q3 = 0.0f;
+    
+    // Initialize filtering and fusion related parameters to avoid issues with dynamicFusionPower calculation
+    madgwickParam.minFusionPower = 0.01f; 
+    madgwickParam.maxFusionPower = 0.5f;  
+    madgwickParam.Fusion_Power = 0.1f;    
+    madgwickParam.filterAlpha = 0.1f;     // Low-pass filter coefficient mustn't be 0
+    
+    // Filtered quaternion also needs initialization
+    madgwickParam.fq0 = 1.0f; 
+    madgwickParam.fq1 = 0.0f;
+    madgwickParam.fq2 = 0.0f;
+    madgwickParam.fq3 = 0.0f;
 }
 
 /**
@@ -122,6 +149,13 @@ void FusionAhrsSetSettings(FusionAhrs *const ahrs, const FusionAhrsSettings *con
     if ((settings->gain == 0.0f) || (settings->recoveryTriggerPeriod == 0)) {
         ahrs->settings.accelerationRejection = FLT_MAX;
     }
+
+    // Set ramped gain to target gain if not initializing
+    if (ahrs->initialising == false) {
+        ahrs->rampedGain = ahrs->settings.gain;
+    }
+    // Set ramped gain step for initialization phase
+    ahrs->rampedGainStep = (INITIAL_GAIN - ahrs->settings.gain) / INITIALISATION_PERIOD;
 }
 
 /**
@@ -159,6 +193,18 @@ void FusionAhrsUpdate(FusionAhrs *const ahrs, const FusionVector gyroscope,
         FusionAhrsReset(ahrs);
         ahrs->quaternion = quaternion;  // Preserve current attitude
         ahrs->angularRateRecovery = true; // Set angular rate recovery flag
+    }
+
+    // Handle initialization phase with gain ramping
+    if (ahrs->initialising) {
+        // Decrease ramped gain towards target gain
+        ahrs->rampedGain -= ahrs->rampedGainStep * deltaTime;
+        
+        // Clamp ramped gain to target gain
+        if (ahrs->rampedGain < ahrs->settings.gain) {
+            ahrs->rampedGain = ahrs->settings.gain;
+            ahrs->initialising = false;
+        }
     }
 
     // Calculate algorithm-indicated gravity direction (half value)
@@ -202,7 +248,7 @@ void FusionAhrsUpdate(FusionAhrs *const ahrs, const FusionVector gyroscope,
 
     // Apply feedback to gyroscope data
     const FusionVector adjustedHalfGyroscope = FusionVectorAdd(halfGyroscope, 
-        FusionVectorMultiplyScalar(halfAccelerometerFeedback, ahrs->settings.gain));
+        FusionVectorMultiplyScalar(halfAccelerometerFeedback, ahrs->rampedGain));
 
     // Integrate quaternion rate of change
     ahrs->quaternion = FusionQuaternionAdd(ahrs->quaternion, 

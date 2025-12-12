@@ -121,7 +121,7 @@ static inline float FusionRadiansToDegrees(const float radians) {
 /**
  * @brief Safe arcsine function
  * @param value Input value in range [-1, 1]
- * @return Arcsine result in range [-¦Ð/2, ¦Ð/2]
+ * @return Arcsine result in range [-ï¿½ï¿½/2, ï¿½ï¿½/2]
  */
 static inline float FusionAsin(const float value) {
     if (value <= -1.0f) return (float) M_PI / -2.0f;
@@ -132,7 +132,7 @@ static inline float FusionAsin(const float value) {
 /**
  * @brief Fast inverse square root calculation (approximate algorithm)
  * @param x Input value
- * @return Approximate 1/¡Ìx
+ * @return Approximate 1/ï¿½ï¿½x
  */
 static inline float FusionFastInverseSqrt(const float x) {
     typedef union { float f; int32_t i; } Union32;
@@ -219,7 +219,7 @@ static inline FusionVector FusionVectorHadamardProduct(const FusionVector vector
  * @brief Cross product of two vectors
  * @param vectorA First vector
  * @param vectorB Second vector
- * @return Cross product A ¡Á B
+ * @return Cross product A ï¿½ï¿½ B
  */
 static inline FusionVector FusionVectorCrossProduct(const FusionVector vectorA, const FusionVector vectorB) {
     return (FusionVector){.axis = {
@@ -233,7 +233,7 @@ static inline FusionVector FusionVectorCrossProduct(const FusionVector vectorA, 
  * @brief Dot product of two vectors
  * @param vectorA First vector
  * @param vectorB Second vector
- * @return Dot product A ¡¤ B
+ * @return Dot product A ï¿½ï¿½ B
  */
 static inline float FusionVectorDotProduct(const FusionVector vectorA, const FusionVector vectorB) {
     return FusionVectorSum(FusionVectorHadamardProduct(vectorA, vectorB));
@@ -414,6 +414,9 @@ typedef struct {
     bool accelerometerIgnored;          // Whether accelerometer data is ignored
     int accelerationRecoveryTrigger;    // Accelerometer recovery trigger counter
     int accelerationRecoveryTimeout;    // Accelerometer recovery timeout
+    float rampedGain;       // Current ramped gain value
+    float rampedGainStep;   // Gain ramping step value
+    bool initialising;      // Whether the AHRS is in the initialization phase
 } FusionAhrs;
 
 typedef struct {
