@@ -5,6 +5,7 @@ A robust, standalone 6-Axis (Gyroscope and Accelerometer) Attitude and Heading R
 [中文版 / Chinese Version](README_CH.md)
 
 This library implements an enhanced **Attitude and Heading Reference System (AHRS)** for 6-DOF IMU (accelerometer + gyroscope). It builds upon the algorithm described in **Chapter 7 of Sebastian Madgwick's PhD thesis** ([link](https://x-io.co.uk/downloads/madgwick-phd-thesis.pdf)), with a key innovation: **adaptive fusion of a secondary gradient-descent (Madgwick) estimator** to dramatically accelerate convergence while maintaining robustness.
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/d5992798-a5b3-470b-af7d-f27ab0807cb5" />
 
 ## Project Structure
 
