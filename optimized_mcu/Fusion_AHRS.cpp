@@ -260,9 +260,11 @@ void FusionAhrsUpdate(FusionAhrs *const ahrs, const FusionVector gyroscope,
 	
     if (use_grad) {
         // Use gradient descent method for fusion (increases noise but accelerates convergence)
+        // When accelerometer is rejected, skip accel correction to avoid treating linear acceleration as gravity.
+        const FusionVector madgwickAccelerometer = ahrs->accelerometerIgnored ? FUSION_VECTOR_ZERO : accelerometer;
         // Gradient descent algorithm to get raw q0-q3 values
         Madgwick_updateIMU(gyroscope.axis.x, gyroscope.axis.y, gyroscope.axis.z, 
-                          accelerometer.axis.x, accelerometer.axis.y, accelerometer.axis.z);
+                          madgwickAccelerometer.axis.x, madgwickAccelerometer.axis.y, madgwickAccelerometer.axis.z);
         
         // Dot product between main algorithm quaternion and Madgwick quaternion
         float dot_product = ahrs->quaternion.element.w * madgwickParam.q0 +
