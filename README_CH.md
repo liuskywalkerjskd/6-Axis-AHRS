@@ -4,9 +4,7 @@
 
 **本算法原始实现为C语言版本，在东北大学T-DT实验室从Robomaster超级对抗赛2024赛季使用至今，性能相对可靠。近期重构为CPP版本，若有问题可在issue中提出。**
 
-> Q: 为什么不用EKF？
->
-> A: https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8453465 
+https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=8453465 
 
 [English Version](README.md)
 
