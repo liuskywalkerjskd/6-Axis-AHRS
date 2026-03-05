@@ -68,6 +68,11 @@ typedef struct {
     float impactRecoveryTimer;         // Timer for impact recovery
     float accWeight;                  // Current accelerometer weight (adapts based on motion/impact)
 
+    // Linear acceleration compensation
+    FusionVector linearAccBody;         // Estimated linear acceleration in body frame
+    float linearAccMagnitude;          // Magnitude of linear acceleration
+    bool isLinearMotion;              // Flag indicating linear motion detected
+
     DigitalFilter hpFilterVel;
     DigitalFilter hpFilterPos;
     float verticalAccBias;
@@ -104,6 +109,12 @@ typedef struct {
         float accWeightImpact;         // Accelerometer weight during impact
         float prevAccMag;              // Previous acceleration magnitude for delta detection
         float prevGyroMag;             // Previous gyro magnitude for delta detection
+
+        // Linear motion (translation) detection parameters
+        float linearAccThreshold;         // Threshold for detecting linear acceleration (g)
+        float linearMotionDecay;         // Decay rate for linear acceleration estimation
+        float accCompensationEnabled;    // Enable acceleration compensation
+
 
     } params;
 } TacticalSystem;

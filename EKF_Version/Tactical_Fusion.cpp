@@ -466,6 +466,16 @@ void Tactical_Init(TacticalSystem *const sys, const float sampleRate, const floa
     sys->params.prevAccMag = 1.0f;                // Initialize previous acc magnitude
     sys->params.prevGyroMag = 0.0f;               // Initialize previous gyro magnitude
 
+    // [NEW] Linear motion detection parameters
+    sys->params.linearAccThreshold = 0.15f;       // Detect linear motion when acc deviates > 0.15g from 1g
+    sys->params.linearMotionDecay = 0.95f;        // Decay rate for linear acceleration estimation
+    sys->params.accCompensationEnabled = 1;
+
+    // Initialize linear acceleration estimation
+    sys->linearAccBody = FUSION_VECTOR_ZERO;
+    sys->linearAccMagnitude = 0.0f;
+    sys->isLinearMotion = false;
+
     // Initialize impact state
     sys->impactState = TACTICAL_IMPACT_NONE;
     sys->impactRecoveryTimer = 0.0f;
@@ -558,6 +568,31 @@ void Tactical_Update(TacticalSystem *const sys, const FusionVector gyro, const F
         }
     }
     // ===== END IMPACT DETECTION =====
+
+    // ===== LINEAR MOTION COMPENSATION =====
+    // Detect and compensate for linear acceleration (translation)
+    if (sys->params.accCompensationEnabled) {
+        // Calculate deviation from 1g (gravity)
+        const float accDeviation = fabsf(accMag - 1.0f);
+        
+        // Detect linear motion: acceleration magnitude significantly different from 1g
+        if (accDeviation > sys->params.linearAccThreshold) {
+            sys->isLinearMotion = true;
+            
+            // Estimate linear acceleration by removing expected gravity direction
+            // This is a simplified approach: use the deviation magnitude as linear motion indicator
+            sys->linearAccMagnitude = accDeviation;
+            
+            // Further reduce accel weight during linear motion
+            const float linearMotionWeight = sys->params.linearAccThreshold / accDeviation;
+            sys->accWeight = sys->accWeight * linearMotionWeight;
+        } else {
+            // Gradually decay linear motion detection
+            sys->isLinearMotion = false;
+            sys->linearAccMagnitude = sys->linearAccMagnitude * sys->params.linearMotionDecay;
+        }
+    }
+    // ===== END LINEAR MOTION =====
 
     EkfPredict(sys, gyro, dt);
     EkfUpdateAccel(sys, acc);
