@@ -415,6 +415,21 @@ void Tactical_Init(TacticalSystem *const sys, const float sampleRate, const floa
     sys->quaternion = FUSION_IDENTITY_QUATERNION;
     sys->motionState = TACTICAL_MOTION_STATIC;
 
+    // [FIX] Initialize noise statistics with reasonable initial values to avoid
+    // large variance spike on first update (fixes static motion misdetection)
+    // Initialize means to expected values (1g for acc, 0 for gyro)
+    sys->noise.accMean = (FusionVector){.axis = {0.0f, 0.0f, 1.0f}};
+    sys->noise.gyroMean = FUSION_VECTOR_ZERO;
+    sys->noise.accMagMean = 1.0f;
+    sys->noise.gyroMagMean = 0.0f;
+    // Initialize variances with expected sensor noise levels
+    const float expectedAccNoise = 0.01f;  // Expected accelerometer noise (g)
+    const float expectedGyroNoise = 0.5f;  // Expected gyroscope noise (deg/s)
+    sys->noise.accVar = (FusionVector){.axis = {expectedAccNoise*expectedAccNoise, expectedAccNoise*expectedAccNoise, expectedAccNoise*expectedAccNoise}};
+    sys->noise.gyroVar = (FusionVector){.axis = {expectedGyroNoise*expectedGyroNoise, expectedGyroNoise*expectedGyroNoise, expectedGyroNoise*expectedGyroNoise}};
+    sys->noise.accMagVar = expectedAccNoise * expectedAccNoise;
+    sys->noise.gyroMagVar = 0.01f;  // Smaller initial variance for gyro to pass static detection
+
     sys->params.processNoiseAngle = 1.0e-5f;
     sys->params.processNoiseBias = 1.0e-7f;
     sys->params.measureNoiseAcc = 1.0e-2f;
