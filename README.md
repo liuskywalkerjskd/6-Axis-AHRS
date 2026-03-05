@@ -1,166 +1,362 @@
-# Fusion AHRS with Adaptive Gradient Descent Fusion
+# Fusion AHRS - 6-Axis IMU Attitude Estimation
 
-A robust, standalone 6-Axis (Gyroscope and Accelerometer) Attitude and Heading Reference System (AHRS) implementation. It features a combined Madgwick gradient descent and standard quaternion fusion filter for fast convergence and stability.
+A robust, standalone 6-Axis (Gyroscope + Accelerometer) Attitude and Heading Reference System (AHRS) implementation. This library provides two algorithms: the original **Madgwick-based fusion** and an advanced **Extended Kalman Filter (EKF)** with adaptive filtering for challenging environments.
 
-[中文版 / Chinese Version](README_CH.md)
+[中文版 / 中文版本](README_CH.md)
 
-This library implements an enhanced **Attitude and Heading Reference System (AHRS)** for 6-DOF IMU (accelerometer + gyroscope). It builds upon the algorithm described in **Chapter 7 of Sebastian Madgwick's PhD thesis** ([link](https://x-io.co.uk/downloads/madgwick-phd-thesis.pdf)), with a key innovation: **adaptive fusion of a secondary gradient-descent (Madgwick) estimator** to dramatically accelerate convergence while maintaining robustness.
-<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/d5992798-a5b3-470b-af7d-f27ab0807cb5" />
+## Table of Contents
+
+- [Project Structure](#project-structure)
+- [Algorithms](#algorithms)
+  - [Madgwick Fusion](#1-madgwick-fusion)
+  - [Extended Kalman Filter](#2-extended-kalman-filter-ekf)
+- [Advanced Features](#advanced-features)
+  - [Impact Detection & Recovery](#impact-detection--recovery)
+  - [Linear Motion Compensation](#linear-motion-compensation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Version Comparison](#version-comparison)
+
+---
 
 ## Project Structure
 
-This repository contains **two implementations** of the same algorithm, optimized for different use cases:
-
 ```
-├── optimized_mcu/    # MCU-optimized version (C-style)
+├── optimized_mcu/        # MCU-optimized version (C-style)
 │   ├── Fusion_AHRS.h
 │   └── Fusion_AHRS.cpp
-├── readable_cpp/     # Modern C++ version (better readability)
+├── readable_cpp/       # Modern C++ version (better readability)
 │   ├── Fusion_AHRS.hpp
 │   └── Fusion_AHRS.cpp
+└── EKF_Version/       # Extended Kalman Filter with adaptive features
+    ├── Fusion_AHRS.h   # Base AHRS (same as optimized_mcu)
+    ├── Fusion_AHRS.cpp
+    ├── Tactical_Fusion.h
+    └── Tactical_Fusion.cpp  # Advanced EKF implementation
 ```
 
-### 🔧 optimized_mcu/ - MCU-Optimized Version
+### Module Description
 
-- **Language**: C-style implementation (compatible with C and C++)
-- **Target**: Embedded systems, MCUs (STM32, ESP32, etc.)
-- **Characteristics**:
-  - Highly optimized for resource-constrained environments
-  - Uses inline functions and macros for performance
-  - Minimizes memory allocations
-  - Lower readability, but maximum performance
-  - Provides C-compatible API with `extern "C"` linkage
+| Directory | Description | Best For |
+|-----------|-------------|----------|
+| `optimized_mcu/` | C-style, highly optimized | Embedded systems (STM32, ESP32) |
+| `readable_cpp/` | Modern C++17, OOP | Desktop, simulation, learning |
+| `EKF_Version/` | EKF + adaptive filtering | High-precision, impact-prone applications |
 
-### 📖 readable_cpp/ - Modern C++ Version
+---
 
-- **Language**: Modern C++17
-- **Target**: Desktop applications, simulations, prototyping, educational purposes
-- **Characteristics**:
-  - Clean, well-structured code with classes and namespaces
-  - Uses operator overloading for intuitive math operations
-  - Better readability and maintainability
-  - Full-featured with `[[nodiscard]]` and `noexcept` annotations
-  - **Not recommended for MCU** due to potential overhead
+## Algorithms
 
-> **Note**: Both versions implement the **exact same algorithm** and produce identical results. Choose based on your platform and development priorities.
+### 1. Madgwick Fusion
 
-The core idea is to blend the primary AHRS output with a parallel Madgwick IMU solution using a **dynamic weight** that depends on the agreement (similarity) between the two quaternions. When the system is far from equilibrium (e.g., after a rapid motion), the weight increases to leverage the fast convergence of gradient descent. In steady state, the weight decreases, favoring the lower-noise primary algorithm.
+Based on Sebastian Madgwick's PhD thesis, Chapter 7.
 
-> **Trade-off**: This acceleration comes at the cost of slightly increased noise during static periods. To provide full control, a runtime flag (`use_gradient_descent`) allows users to disable this feature and fall back to the standard, noise-optimized behavior.
+#### Core Equations
 
-## Features
+**Quaternion Gradient Descent:**
 
-- 🧭 Robust 6-DOF orientation estimation (no magnetometer required).
-- ⚡ **Accelerated Convergence**: Adaptive fusion with a secondary Madgwick gradient-descent estimator.
-- 🎚️ **Dynamic Weighting**: Fusion power automatically adjusts based on quaternion similarity.
-- 🔇 **Configurable Noise**: Toggle gradient descent fusion on/off via `use_gradient_descent`.
-- 🌍 Supports multiple Earth-frame conventions: NWU, ENU, NED.
-- 📏 Provides gravity vector, linear acceleration, and Earth-frame acceleration.
-- 🧹 Built-in gyroscope bias correction (offset calibration).
-- 🧪 Two implementations: MCU-optimized (C-style) and Modern C++17.
-- 📦 Header-only or compiled library options.
+$$
+\dot{q} = \frac{1}{2} q \otimes \omega - \beta \nabla f
+$$
 
-## Usage
+Where:
+- $q = [q_0, q_1, q_2, q_3]$ is the quaternion
+- $\omega = [0, \omega_x, \omega_y, \omega_z]$ is the angular velocity
+- $\beta$ is the gain parameter
+- $\nabla f$ is the gradient of the objective function
 
-### Modern C++ Version (readable_cpp/)
+**Objective Function:**
 
-```cpp
-#include "Fusion_AHRS.hpp"
+$$
+f = f_d + \lambda f_g
+$$
 
-int main() {
-    fusion::Ahrs ahrs;
-    fusion::Offset offset;
-  
-    // Initialize bias correction at 100 Hz sample rate
-    offset.initialise(100);
-  
-    // Optional: Disable gradient descent fusion to reduce static noise
-    // ahrs.enable_gradient_descent(false);
-  
-    while (true) {
-        // Read raw sensor data (deg/s, g)
-        fusion::Vector raw_gyro = read_gyro();
-        fusion::Vector accel = read_accelerometer();
-  
-        // Correct gyroscope bias
-        fusion::Vector gyro = offset.update(raw_gyro);
-  
-        // Update AHRS (dt = 0.01s for 100 Hz)
-        ahrs.update(gyro, accel, 0.01f);
-  
-        // Get final orientation
-        auto quaternion = ahrs.get_quaternion();
-    }
+- $f_d = 2(q_1q_3 - q_0q_2) - d_x$ (direction cosine matrix error)
+- $f_g = 2(q_0q_1 + q_2q_3) - d_y$ (gyroscope error)
+- $\lambda$ balances the two constraints
+
+**Discrete Update (Sample Rate $f$):**
+
+$$
+q_{k+1} = q_k + \dot{q} \cdot \frac{1}{f}
+$$
+
+**Adaptive Weighting:**
+
+The fusion weight $w$ is dynamically adjusted based on quaternion similarity:
+
+$$
+w = w_{min} + (w_{max} - w_{min}) \cdot (1 - |q_1 \cdot q_2|)
+$$
+
+Where $q_1$ and $q_2$ are quaternions from two estimators.
+
+---
+
+### 2. Extended Kalman Filter (EKF)
+
+A 6-state EKF that estimates attitude quaternion and gyroscope bias.
+
+#### State Vector
+
+$$
+x = \begin{bmatrix} q \\ b \end{bmatrix} = \begin{bmatrix} q_0 & q_1 & q_2 & q_3 & b_x & b_y & b_z \end{bmatrix}^T
+$$
+
+Where:
+- $q$: attitude quaternion
+- $b$: gyroscope bias (rad/s)
+
+#### State Transition (Prediction)
+
+$$
+\dot{q} = \frac{1}{2} q \otimes \begin{bmatrix} 0 \\ \omega - b \end{bmatrix}
+$$
+
+$$
+\dot{b} = 0 \quad \text{(bias is modeled as random walk)}
+$$
+
+**Jacobian Matrix $F$:**
+
+$$
+F = \begin{bmatrix} I_3 & -\frac{1}{2}I_3 \cdot \Delta t \\ 0_{3\times3} & I_3 \end{bmatrix}
+$$
+
+**Covariance Prediction:**
+
+$$
+P_{k|k-1} = F P_{k-1} F^T + Q
+$$
+
+Where $Q$ is the process noise matrix:
+
+$$
+Q = \begin{bmatrix} q_{\theta} \cdot \Delta t \cdot I_3 & 0 \\ 0 & q_{bias} \cdot \Delta t \cdot I_3 \end{bmatrix}
+$$
+
+#### Measurement Update (Accelerometer)
+
+The accelerometer measures gravity direction in body frame:
+
+$$
+a_{measured} = \frac{R(q)^T g}{\|R(q)^T g\|}
+$$
+
+**Innovation:**
+
+$$
+y = a_{normalized} - a_{predicted}
+$$
+
+**Kalman Gain:**
+
+$$
+K = P_{k|k-1} H^T (H P_{k|k-1} H^T + R)^{-1}
+$$
+
+Where $H$ is the Jacobian of measurement function and $R$ is observation noise.
+
+**State Update:**
+
+$$
+\hat{x}_k = \hat{x}_{k|k-1} + K y
+$$
+
+**Covariance Update:**
+
+$$
+P_k = (I - K H) P_{k|k-1} (I - K H)^T + K R K^T
+$$
+
+---
+
+## Advanced Features
+
+### Impact Detection & Recovery
+
+Detects high-acceleration events and rapidly recovers orientation estimation.
+
+#### Detection Logic
+
+```c
+if (accDelta > accThreshold || gyroDelta > gyroThreshold) {
+    impactDetected = true;
 }
 ```
 
-### MCU-Optimized Version (optimized_mcu/)
+#### Recovery Mechanism
+
+1. **Immediately reduce accelerometer weight** to ignore false readings during impact
+2. **Ramp up gain** during recovery for fast convergence
+
+```
+Weight(t) = w_impact + (w_normal - w_impact) * (t / recovery_duration)
+```
+
+**Process Noise Scaling:**
+
+During impact, process noise $Q$ is scaled inversely with weight:
+
+$$
+Q_{impact} = \frac{Q_{normal}}{w_{impact}}
+$$
+
+This makes the EKF rely more on gyro integration vs. accelerometer correction.
+
+#### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `impactAccThreshold` | 0.5g | Acceleration change threshold |
+| `impactGyroThreshold` | 100°/s | Gyro rate change threshold |
+| `impactRecoveryDuration` | 0.5s | Recovery time |
+| `accWeightImpact` | 5% | Weight during impact |
+
+---
+
+### Linear Motion Compensation
+
+Detects and compensates for linear acceleration (translation) interference.
+
+#### Detection Logic
+
+The key insight: **static acceleration magnitude ≈ 1g**, linear motion causes deviation.
+
+$$
+\text{deviation} = |\|a\| - 1|
+$$
+
+If deviation > threshold, linear motion is detected.
+
+#### Compensation
+
+During linear motion, accelerometer weight is further reduced:
+
+$$
+w_{linear} = w \cdot \frac{threshold}{deviation}
+$$
+
+#### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `linearAccThreshold` | 0.15g | Deviation threshold |
+| `linearMotionDecay` | 0.95 | State decay rate |
+| `accCompensationEnabled` | 1 | Feature toggle |
+
+---
+
+## Usage
+
+### Madgwick Version (optimized_mcu/)
 
 ```c
 #include "Fusion_AHRS.h"
 
-// Global AHRS and offset instances
 FusionAhrs ahrs;
 FusionOffset offset;
 
-int main(void) {
-    // Initialize AHRS
+void main() {
     FusionAhrsInitialise(&ahrs);
-    
-    // Initialize bias correction at 100 Hz sample rate
-    FusionOffsetInitialise(&offset, 100);
-    
+    FusionOffsetInitialise(&offset, 100);  // 100 Hz
+
     while (1) {
-        // Read raw sensor data (deg/s, g)
-        FusionVector raw_gyro = {.axis = {gx, gy, gz}};
-        FusionVector accel = {.axis = {ax, ay, az}};
-        
-        // Correct gyroscope bias
-        FusionVector gyro = FusionOffsetUpdate(&offset, raw_gyro);
-        
-        // Update AHRS (dt = 0.01s for 100 Hz)
-        FusionAhrsUpdate(&ahrs, gyro, accel, 0.01f);
-        
-        // Get final orientation
-        FusionQuaternion quaternion = FusionAhrsGetQuaternion(&ahrs);
-        
-        // Convert to Euler angles if needed
-        FusionEuler euler = FusionQuaternionToEuler(quaternion);
+        FusionVector gyro = {gx, gy, gz};      // deg/s
+        FusionVector acc = {ax, ay, az};       // g
+
+        // Gyroscope bias correction
+        gyro = FusionOffsetUpdate(&offset, gyro);
+
+        // Update AHRS
+        FusionAhrsUpdate(&ahrs, gyro, acc, 0.01f);
+
+        // Get result
+        FusionQuaternion q = FusionAhrsGetQuaternion(&ahrs);
+        FusionEuler euler = FusionQuaternionToEuler(q);
     }
 }
 ```
 
+### EKF Version (EKF_Version/)
+
+```c
+#include "Tactical_Fusion.h"
+
+TacticalSystem sys;
+
+void main() {
+    Tactical_Init(&sys, 100.0f, 0.1f);  // 100 Hz, 0.1 Hz heave cutoff
+
+    while (1) {
+        FusionVector gyro = {gx, gy, gz};      // deg/s
+        FusionVector acc = {ax, ay, az};       // g
+
+        Tactical_Update(&sys, gyro, acc);
+
+        FusionQuaternion q = sys.quaternion;
+    }
+}
+```
+
+---
+
 ## Configuration
 
-### Modern C++ Version
+### Madgwick Parameters
 
-* **`Ahrs::enable_gradient_descent(bool)`** : Enable/disable the adaptive gradient descent fusion.
-* **`Ahrs::set_settings(...)`** : Tune gain, rejection thresholds, and coordinate system.
-* **`Offset::initialise(...)`** : Configure gyroscope bias correction parameters.
+| Parameter | Default | Range | Description |
+|-----------|---------|-------|-------------|
+| `gain` | 0.5 | 0-1 | Algorithm gain |
+| `beta` | 0.1 | 0-1 | Gradient descent rate |
+| `gyroscopeRange` | 2000°/s | - | Gyro range limit |
+| `accelerationRejection` | 30° | - | Accel rejection threshold |
 
-### MCU-Optimized Version
+### EKF Parameters
 
-* **`FusionAhrsSetSettings(...)`** : Set AHRS algorithm parameters (gain, gyroscope range, coordinate convention).
-* **`FusionOffsetInitialise(...)`** : Configure gyroscope bias correction parameters.
-* **`use_grad`** (global variable): Set to `0` to disable gradient descent fusion, `1` to enable (default).
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `processNoiseAngle` | 1e-5 | Angle process noise |
+| `processNoiseBias` | 1e-7 | Bias process noise |
+| `measureNoiseAcc` | 1e-2 | Accel measurement noise |
+| `accStaticThreshold` | 0.02g | Static detection threshold |
+| `gyroStaticThreshold` | 0.5°/s | Static gyro threshold |
+
+---
 
 ## Version Comparison
 
-| Feature | optimized_mcu/ | readable_cpp/ |
-| --- | --- | --- |
-| **Language** | C-style (C/C++ compatible) | Modern C++17 |
-| **Target Platform** | MCU, Embedded Systems | Desktop, Simulation |
-| **Performance** | ⚡ Highly Optimized | 🔧 Standard |
-| **Readability** | 📖 Lower | 📖 **High** |
-| **Memory Usage** | 💾 Minimal | 💾 Standard |
-| **API Style** | Function-based | Class-based (OOP) |
-| **Recommended For** | Production on MCU | Learning, Prototyping |
+| Feature | Madgwick | EKF (Tactical) |
+|---------|----------|-----------------|
+| **Algorithm** | Gradient Descent | Extended Kalman Filter |
+| **Complexity** | Low | Medium |
+| **Accuracy** | Good | **Excellent** |
+| **Impact Recovery** | Basic | **Advanced** |
+| **Linear Motion Filter** | No | **Yes** |
+| **Heave Estimation** | No | **Yes** |
+| **MCU Friendly** | ✅ | ✅ |
 
-## Performance vs. Noise
+---
 
-| Mode                                    | Convergence Speed     | Static Noise        |
-| --------------------------------------- | --------------------- | ------------------- |
-| **Gradient Descent ON** (default) | ⚡**Very Fast** | 🔊 Slightly Higher  |
-| **Gradient Descent OFF**          | 🚗 Fast               | 🔇**Minimal** |
+## Performance Characteristics
 
-Choose based on your application’s priority: **responsiveness** or  **steady-state precision** .
+### Madgwick
+
+| Mode | Convergence | Static Noise |
+|------|-------------|--------------|
+| GD ON (default) | ⚡ Very Fast | 🔊 Slightly Higher |
+| GD OFF | 🚗 Fast | 🔇 Minimal |
+
+### EKF (Tactical)
+
+| Motion State | Behavior |
+|--------------|----------|
+| Static | High accel weight, ZUPT for bias correction |
+| Linear Motion | Reduced accel weight, rely on gyro |
+| Impact | Minimal accel weight, fast recovery |
+
+---
+
+## License
+
+MIT License - See LICENSE file.
