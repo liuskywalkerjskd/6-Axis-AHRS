@@ -291,7 +291,10 @@ static void EkfUpdateAccel(TacticalSystem *const sys, const FusionVector acc) {
 
     // [NEW] Apply impact-based adaptive weighting
     // Increase observation noise (reduce accel weight) during impact/recovery
-    rAcc = rAcc / sys->accWeight;
+    // [Alternative] Increase process noise instead of observation noise for cleaner EKF logic
+    // This makes the prediction more uncertain during impact, relying more on gyro integration
+    const float impactQScale = 1.0f / sys->accWeight;  // Q scales inversely with weight
+    qAngle = qAngle * impactQScale;
     (void)qAngle;
     (void)qBias;
 
