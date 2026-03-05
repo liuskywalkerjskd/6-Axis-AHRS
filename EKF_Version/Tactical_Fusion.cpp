@@ -288,6 +288,10 @@ static void EkfUpdateAccel(TacticalSystem *const sys, const FusionVector acc) {
     float qBias = 0.0f;
     float rAcc = 0.0f;
     ComputeAdaptiveNoise(sys, accError, &qAngle, &qBias, &rAcc);
+
+    // [NEW] Apply impact-based adaptive weighting
+    // Increase observation noise (reduce accel weight) during impact/recovery
+    rAcc = rAcc / sys->accWeight;
     (void)qAngle;
     (void)qBias;
 
@@ -449,6 +453,21 @@ void Tactical_Init(TacticalSystem *const sys, const float sampleRate, const floa
     sys->params.verticalAccLp = 0.2f;
     sys->params.gyroBiasAlpha = 0.001f;
 
+    // [NEW] Impact detection and recovery parameters
+    sys->params.impactAccThreshold = 0.5f;       // Detect impact when acc changes > 0.5g
+    sys->params.impactGyroThreshold = 100.0f;     // Detect impact when gyro changes > 100 deg/s
+    sys->params.impactRecoveryGain = 5.0f;        // Higher gain during recovery for fast convergence
+    sys->params.impactRecoveryDuration = 0.5f;     // Recovery duration 0.5 seconds
+    sys->params.accWeightNormal = 1.0f;          // Normal accelerometer weight
+    sys->params.accWeightImpact = 0.05f;          // Very low weight during impact to ignore false acc
+    sys->params.prevAccMag = 1.0f;                // Initialize previous acc magnitude
+    sys->params.prevGyroMag = 0.0f;               // Initialize previous gyro magnitude
+
+    // Initialize impact state
+    sys->impactState = TACTICAL_IMPACT_NONE;
+    sys->impactRecoveryTimer = 0.0f;
+    sys->accWeight = sys->params.accWeightNormal;
+
     for (int i = 0; i < 6; ++i) {
         for (int j = 0; j < 6; ++j) {
             sys->P[i][j] = 0.0f;
@@ -480,6 +499,62 @@ void Tactical_Update(TacticalSystem *const sys, const FusionVector gyro, const F
     sys->accMagnitude = FusionVectorMagnitude(acc);
     UpdateNoiseStats(sys, acc, calibGyro, dt);
     sys->motionState = AnalyzeMotion(sys, acc, calibGyro);
+
+    // ===== IMPACT DETECTION AND RECOVERY =====
+    const float accMag = sys->accMagnitude;
+    const float gyroMag = FusionVectorMagnitude(calibGyro);
+    
+    // Calculate rate of change
+    const float accDelta = fabsf(accMag - sys->params.prevAccMag);
+    const float gyroDelta = fabsf(gyroMag - sys->params.prevGyroMag);
+    
+    // Store current values for next iteration
+    sys->params.prevAccMag = accMag;
+    sys->params.prevGyroMag = gyroMag;
+    
+    // Impact detection logic
+    if (sys->impactState == TACTICAL_IMPACT_NONE) {
+        // Check for sudden acceleration or rotation change
+        if ((accDelta > sys->params.impactAccThreshold) ||
+            (gyroDelta > sys->params.impactGyroThreshold * dt)) {
+            sys->impactState = TACTICAL_IMPACT_DETECTED;
+            sys->impactRecoveryTimer = 0.0f;
+        }
+    }
+    
+    // Handle impact recovery
+    if (sys->impactState == TACTICAL_IMPACT_DETECTED) {
+        sys->impactState = TACTICAL_IMPACT_RECOVERING;
+        sys->impactRecoveryTimer = 0.0f;
+        // Immediately drop accelerometer weight
+        sys->accWeight = sys->params.accWeightImpact;
+    } else if (sys->impactState == TACTICAL_IMPACT_RECOVERING) {
+        sys->impactRecoveryTimer += dt;
+        
+        // Linear ramp up gain during recovery (faster convergence)
+        const float recoveryProgress = sys->impactRecoveryTimer / sys->params.impactRecoveryDuration;
+        const float recoveryGain = sys->params.impactRecoveryGain * recoveryProgress;
+        
+        // Ramp up accelerometer weight
+        sys->accWeight = sys->params.accWeightImpact +
+                        (sys->params.accWeightNormal - sys->params.accWeightImpact) * recoveryProgress;
+        
+        // Check if recovery is complete
+        if (sys->impactRecoveryTimer >= sys->params.impactRecoveryDuration) {
+            sys->impactState = TACTICAL_IMPACT_NONE;
+            sys->accWeight = sys->params.accWeightNormal;
+        }
+    } else {
+        // Normal state - adapt weight based on motion
+        if (sys->motionState == TACTICAL_MOTION_STATIC) {
+            sys->accWeight = sys->params.accWeightNormal;
+        } else if (sys->motionState == TACTICAL_MOTION_STABLE) {
+            sys->accWeight = sys->params.accWeightNormal * 0.5f;
+        } else {
+            sys->accWeight = sys->params.accWeightNormal * 0.2f;
+        }
+    }
+    // ===== END IMPACT DETECTION =====
 
     EkfPredict(sys, gyro, dt);
     EkfUpdateAccel(sys, acc);

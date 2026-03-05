@@ -19,6 +19,12 @@ typedef enum {
     TACTICAL_MOTION_DYNAMIC,
 } TacticalMotionState;
 
+typedef enum {
+    TACTICAL_IMPACT_NONE,
+    TACTICAL_IMPACT_DETECTED,
+    TACTICAL_IMPACT_RECOVERING
+} TacticalImpactState;
+
 typedef struct {
     float b0;
     float b1;
@@ -58,6 +64,10 @@ typedef struct {
     TacticalMotionState motionState;
     float accMagnitude;
 
+    TacticalImpactState impactState;    // Current impact state
+    float impactRecoveryTimer;         // Timer for impact recovery
+    float accWeight;                  // Current accelerometer weight (adapts based on motion/impact)
+
     DigitalFilter hpFilterVel;
     DigitalFilter hpFilterPos;
     float verticalAccBias;
@@ -84,6 +94,17 @@ typedef struct {
         float verticalBiasAlpha;
         float verticalAccLp;
         float gyroBiasAlpha;
+
+        // Impact detection parameters
+        float impactAccThreshold;       // Acceleration change threshold for impact detection (g)
+        float impactGyroThreshold;      // Gyro rate change threshold for impact detection (deg/s)
+        float impactRecoveryGain;       // Gain during recovery phase
+        float impactRecoveryDuration;   // Recovery duration in seconds
+        float accWeightNormal;          // Normal accelerometer weight
+        float accWeightImpact;         // Accelerometer weight during impact
+        float prevAccMag;              // Previous acceleration magnitude for delta detection
+        float prevGyroMag;             // Previous gyro magnitude for delta detection
+
     } params;
 } TacticalSystem;
 
