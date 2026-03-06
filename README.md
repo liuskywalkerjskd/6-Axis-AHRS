@@ -360,3 +360,8 @@ void main() {
 ## License
 
 MIT License - See LICENSE file.
+
+---
+
+**Original Implementation**: T-DT Lab, Northeastern University
+**This algorithm has been used in the RoboMaster Super Confrontation Competition since the 2024 season**
