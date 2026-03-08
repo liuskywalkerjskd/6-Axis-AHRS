@@ -775,19 +775,19 @@
             </h2>
             <div class="ekf-details">
                 <div class="ekf-tabs">
-                    <button class="ekf-tab active" onclick="showEKFTab('motion')">
+                    <button class="ekf-tab active" onclick="showEKFTab('motion', this)">
                         <span class="zh">运动状态检测</span>
                         <span class="en">Motion State</span>
                     </button>
-                    <button class="ekf-tab" onclick="showEKFTab('impact')">
+                    <button class="ekf-tab" onclick="showEKFTab('impact', this)">
                         <span class="zh">冲击检测</span>
                         <span class="en">Impact Detection</span>
                     </button>
-                    <button class="ekf-tab" onclick="showEKFTab('heave')">
+                    <button class="ekf-tab" onclick="showEKFTab('heave', this)">
                         <span class="zh">浮沉估计</span>
                         <span class="en">Heave Estimation</span>
                     </button>
-                    <button class="ekf-tab" onclick="showEKFTab('noise')">
+                    <button class="ekf-tab" onclick="showEKFTab('noise', this)">
                         <span class="zh">噪声分析</span>
                         <span class="en">Noise Analysis</span>
                     </button>
@@ -1017,8 +1017,8 @@
             <div class="code-section">
                 <div class="code-header">
                     <div class="code-tabs">
-                        <button class="code-tab active" onclick="showCodeTab('ekf')">EKF</button>
-                        <button class="code-tab" onclick="showCodeTab('madgwick')">Madgwick</button>
+                        <button class="code-tab active" onclick="showCodeTab('ekf', this)">EKF</button>
+                        <button class="code-tab" onclick="showCodeTab('madgwick', this)">Madgwick</button>
                     </div>
                     <span class="code-lang">C / C++</span>
                 </div>
@@ -1127,27 +1127,30 @@
         // Language switching
         function setLang(lang) {
             document.documentElement.lang = lang;
-            document.querySelectorAll('.lang-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
+            document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+            if (lang === 'zh-CN') {
+                document.querySelector('.lang-btn:first-child').classList.add('active');
+            } else {
+                document.querySelector('.lang-btn:last-child').classList.add('active');
+            }
         }
 
         // EKF tab switching
-        function showEKFTab(tabName) {
+        function showEKFTab(tabName, el) {
             document.querySelectorAll('.ekf-tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.ekf-content').forEach(content => content.classList.remove('active'));
-            event.target.classList.add('active');
+            el.classList.add('active');
             document.getElementById(tabName).classList.add('active');
         }
 
         // Code tab switching
-        function showCodeTab(tabName) {
+        function showCodeTab(tabName, el) {
             document.querySelectorAll('.code-tab').forEach(tab => tab.classList.remove('active'));
-            event.target.classList.add('active');
+            el.classList.add('active');
             document.getElementById('code-ekf').style.display = tabName === 'ekf' ? 'block' : 'none';
             document.getElementById('code-madgwick').style.display = tabName === 'madgwick' ? 'block' : 'none';
         }
+
+        // Initialize default language
+        document.querySelector('.lang-btn:first-child').classList.add('active');
     </script>
-</body>
-</html>
