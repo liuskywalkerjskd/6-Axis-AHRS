@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>6-Axis AHRS - 姿态航向参考系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+        }
+        .tag {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .tag.ekf { background: #764ba2; }
+        .tag.madgwick { background: #f093fb; }
+        .tag.esp32 { background: #4fc3f7; }
+        .tag.stm32 { background: #81c784; }
+        h2 {
+            color: #333;
+            margin: 30px 0 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+            margin: 15px 0;
+        }
+        .code-block .comment { color: #6a9955; }
+        .code-block .keyword { color: #569cd6; }
+        .code-block .function { color: #dcdcaa; }
+        .code-block .number { color: #b5cea8; }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .feature-item {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        .feature-item h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        .file-tree {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.9em;
+            margin: 15px 0;
+        }
+        .file-tree .dir { color: #667eea; }
+        .file-tree .file { color: #333; }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #666;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .github-btn {
+            display: inline-block;
+            background: #333;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-top: 20px;
+            transition: transform 0.2s;
+        }
+        .github-btn:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>6-Axis AHRS</h1>
+            <p class="subtitle">强大的六轴姿态航向参考系统 (AHRS) 实现</p>
+
+            <div>
+                <span class="tag">Madgwick</span>
+                <span class="tag ekf">EKF</span>
+                <span class="tag esp32">ESP32</span>
+                <span class="tag stm32">STM32</span>
+            </div>
+
+            <h2>项目简介</h2>
+            <p>一个稳健的独立六轴（陀螺仪 + 加速度计）姿态和航向参考系统 (AHRS) 实现。该库提供了两种算法：基于 Madgwick 的原始融合算法和适用于复杂环境的高级扩展卡尔曼滤波器 (EKF)。</p>
+
+            <h2>核心特性</h2>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h3>Madgwick 融合算法</h3>
+                    <p>基于 Sebastian Madgwick 博士论文第七章的实现，稳定可靠。</p>
+                </div>
+                <div class="feature-item">
+                    <h3>扩展卡尔曼滤波 (EKF)</h3>
+                    <p>6状态 EKF，估计姿态四元数和陀螺仪偏置，自适应滤波。</p>
+                </div>
+                <div class="feature-item">
+                    <h3>冲击检测与恢复</h3>
+                    <p>检测高加速度事件，快速恢复姿态估计。</p>
+                </div>
+                <div class="feature-item">
+                    <h3>线性运动补偿</h3>
+                    <p>检测并补偿线性加速度干扰，提高精度。</p>
+                </div>
+                <div class="feature-item">
+                    <h3>自动陀螺仪偏置校正</h3>
+                    <p>实时估计并补偿陀螺仪零漂。</p>
+                </div>
+                <div class="feature-item">
+                    <h3>自适应权重</h3>
+                    <p>根据四元数相似度动态调整融合权重。</p>
+                </div>
+            </div>
+
+            <h2>硬件支持</h2>
+            <ul>
+                <li>嵌入式系统：STM32, ESP32</li>
+                <li>6轴 IMU（陀螺仪 + 加速度计）</li>
+            </ul>
+
+            <h2>代码版本</h2>
+            <div class="file-tree">
+                <span class="dir">optimized_mcu/</span>  ← MCU优化版本 (C语言)<br>
+                &nbsp;&nbsp;├── Fusion_AHRS.h<br>
+                &nbsp;&nbsp;└── Fusion_AHRS.cpp<br><br>
+                <span class="dir">readable_cpp/</span>  ← 现代C++版本 (可读性好)<br>
+                &nbsp;&nbsp;├── Fusion_AHRS.hpp<br>
+                &nbsp;&nbsp;└── Fusion_AHRS.cpp<br><br>
+                <span class="dir">EKF_Version/</span>  ← 扩展卡尔曼滤波版本<br>
+                &nbsp;&nbsp;├── Fusion_AHRS.h<br>
+                &nbsp;&nbsp;├── Fusion_AHRS.cpp<br>
+                &nbsp;&nbsp;├── Tactical_Fusion.h<br>
+                &nbsp;&nbsp;└── Tactical_Fusion.cpp
+            </div>
+
+            <h2>快速使用</h2>
+
+            <h3>Madgwick 版本</h3>
+            <div class="code-block">
+<span class="comment">#include "Fusion_AHRS.h"</span>
+FusionAhrs ahrs;
+FusionOffset offset;
+
+<span class="function">FusionAhrsInitialise</span>(&amp;ahrs);
+<span class="function">FusionOffsetInitialise</span>(&amp;offset, <span class="number">100</span>); <span class="comment">// 100 Hz</span>
+
+FusionVector gyro = {gx, gy, gz}; <span class="comment">// deg/s</span>
+FusionVector acc = {ax, ay, az};  <span class="comment">// g</span>
+gyro = <span class="function">FusionOffsetUpdate</span>(&amp;offset, gyro);
+<span class="function">FusionAhrsUpdate</span>(&amp;ahrs, gyro, acc, <span class="number">0.01f</span>);
+FusionQuaternion q = <span class="function">FusionAhrsGetQuaternion</span>(&amp;ahrs);
+FusionEuler euler = <span class="function">FusionQuaternionToEuler</span>(q);
+            </div>
+
+            <h3>EKF 版本</h3>
+            <div class="code-block">
+<span class="comment">#include "Tactical_Fusion.h"</span>
+TacticalSystem sys;
+<span class="function">Tactical_Init</span>(&amp;sys, <span class="number">100.0f</span>, <span class="number">0.1f</span>); <span class="comment">// 100 Hz, 0.1 Hz 波浪频率</span>
+
+FusionVector gyro = {gx, gy, gz}; <span class="comment">// deg/s</span>
+FusionVector acc = {ax, ay, az};  <span class="comment">// g</span>
+<span class="function">Tactical_Update</span>(&amp;sys, gyro, acc);
+FusionQuaternion q = sys.quaternion;
+            </div>
+
+            <h2>应用场景</h2>
+            <ul>
+                <li>RoboMaster 超级对抗赛（2024赛季起）</li>
+                <li>无人机姿态控制</li>
+                <li>机器人平衡系统</li>
+                <li>VR/AR 头部追踪</li>
+                <li>工业姿态监测</li>
+            </ul>
+
+            <h2>关于</h2>
+            <p>由 T-DT Lab, 东北大学 开发。</p>
+            <p>MIT 许可证</p>
+
+            <div class="footer">
+                <a href="https://github.com/liuskywalkerjskd/6-Axis-AHRS" class="github-btn">
+                    查看 GitHub 仓库
+                </a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
