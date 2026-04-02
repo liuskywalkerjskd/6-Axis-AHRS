@@ -633,17 +633,11 @@ void Madgwick_updateIMU(float gx, float gy, float gz, float ax, float ay, float 
         madgwickParam.v_s2 = madgwickParam.momentum * madgwickParam.v_s2 + grad_step2;
         madgwickParam.v_s3 = madgwickParam.momentum * madgwickParam.v_s3 + grad_step3;
 
-        // Apply momentum-based feedback step
+        // Apply momentum-based feedback step (includes gradient via v_s accumulation)
         qDot1 -= madgwickParam.v_s0;
         qDot2 -= madgwickParam.v_s1;
         qDot3 -= madgwickParam.v_s2;
         qDot4 -= madgwickParam.v_s3;
-
-        // Apply feedback step, feed error gradient back to quaternion derivative
-        qDot1 -= madgwickParam.beta * s0;
-        qDot2 -= madgwickParam.beta * s1;
-        qDot3 -= madgwickParam.beta * s2;
-        qDot4 -= madgwickParam.beta * s3;
     }
 
     // Integrate quaternion derivative to get new quaternion

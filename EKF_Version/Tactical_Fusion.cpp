@@ -289,14 +289,11 @@ static void EkfUpdateAccel(TacticalSystem *const sys, const FusionVector acc) {
     float rAcc = 0.0f;
     ComputeAdaptiveNoise(sys, accError, &qAngle, &qBias, &rAcc);
 
-    // [NEW] Apply impact-based adaptive weighting
-    // Increase observation noise (reduce accel weight) during impact/recovery
-    // [Alternative] Increase process noise instead of observation noise for cleaner EKF logic
-    // This makes the prediction more uncertain during impact, relying more on gyro integration
-    const float impactQScale = 1.0f / sys->accWeight;  // Q scales inversely with weight
-    qAngle = qAngle * impactQScale;
-    (void)qAngle;
-    (void)qBias;
+    // Apply impact-based adaptive weighting to observation noise
+    // Lower accWeight → higher rAcc → less trust in accelerometer during impact/recovery
+    if (sys->accWeight > 0.0f) {
+        rAcc /= sys->accWeight;
+    }
 
     float P11[3][3];
     float P21[3][3];
@@ -412,6 +409,15 @@ static void EkfUpdateAccel(TacticalSystem *const sys, const FusionVector acc) {
             sys->P[i][j] = Pnew[i][j] + rAcc * KKt[i][j];
         }
     }
+
+    // Enforce P matrix symmetry to prevent numerical drift
+    for (int i = 0; i < 6; ++i) {
+        for (int j = i + 1; j < 6; ++j) {
+            const float avg = 0.5f * (sys->P[i][j] + sys->P[j][i]);
+            sys->P[i][j] = avg;
+            sys->P[j][i] = avg;
+        }
+    }
 }
 
 void Tactical_Init(TacticalSystem *const sys, const float sampleRate, const float heaveCutoffFreq) {
@@ -471,10 +477,30 @@ void Tactical_Init(TacticalSystem *const sys, const float sampleRate, const floa
     sys->params.linearMotionDecay = 0.95f;        // Decay rate for linear acceleration estimation
     sys->params.accCompensationEnabled = 1;
 
+    // Direction-based translational acceleration detection
+    sys->params.accDirectionThreshold = 0.15f;   // ~8.6 degrees deviation from predicted gravity
+    sys->params.accDirectionScale = 10.0f;        // R multiplier per radian of direction error
+
+    // Paddling / periodic vibration detection
+    sys->params.paddlingVarThreshold = 0.05f;     // Variance threshold (g^2) for periodic motion
+    sys->params.paddlingMeanTolerance = 0.1f;     // Mean must be within 0.1g of 1g
+    sys->params.paddlingRScale = 20.0f;           // Heavily distrust accel during paddling
+    sys->params.paddlingWindowAlpha = 0.01f;      // ~2s window at 500Hz for variance estimation
+
+    // Sustained linear acceleration
+    sys->params.sustainedLinearAlpha = 0.05f;     // Slow decay for sustained detection
+
     // Initialize linear acceleration estimation
     sys->linearAccBody = FUSION_VECTOR_ZERO;
     sys->linearAccMagnitude = 0.0f;
     sys->isLinearMotion = false;
+
+    // Initialize direction-based and paddling state
+    sys->accDirectionError = 0.0f;
+    sys->accVarWindow = 0.0f;
+    sys->accMeanWindow = 1.0f;
+    sys->accVarWindowAlpha = sys->params.paddlingWindowAlpha;
+    sys->isPaddling = false;
 
     // Initialize impact state
     sys->impactState = TACTICAL_IMPACT_NONE;
@@ -546,8 +572,7 @@ void Tactical_Update(TacticalSystem *const sys, const FusionVector gyro, const F
         
         // Linear ramp up gain during recovery (faster convergence)
         const float recoveryProgress = sys->impactRecoveryTimer / sys->params.impactRecoveryDuration;
-        const float recoveryGain = sys->params.impactRecoveryGain * recoveryProgress;
-        
+
         // Ramp up accelerometer weight
         sys->accWeight = sys->params.accWeightImpact +
                         (sys->params.accWeightNormal - sys->params.accWeightImpact) * recoveryProgress;
@@ -569,39 +594,102 @@ void Tactical_Update(TacticalSystem *const sys, const FusionVector gyro, const F
     }
     // ===== END IMPACT DETECTION =====
 
-    // ===== LINEAR MOTION COMPENSATION =====
-    // Detect and compensate for linear acceleration (translation)
+    // ===== TRANSLATIONAL ACCELERATION COMPENSATION (3 mechanisms) =====
     if (sys->params.accCompensationEnabled) {
-        // Calculate deviation from 1g (gravity)
-        const float accDeviation = fabsf(accMag - 1.0f);
-        
-        // Detect linear motion: acceleration magnitude significantly different from 1g
-        if (accDeviation > sys->params.linearAccThreshold) {
-            sys->isLinearMotion = true;
-            
-            // Estimate linear acceleration by removing expected gravity direction
-            // This is a simplified approach: use the deviation magnitude as linear motion indicator
-            sys->linearAccMagnitude = accDeviation;
-            
-            // Further reduce accel weight during linear motion
-            const float linearMotionWeight = sys->params.linearAccThreshold / accDeviation;
-            sys->accWeight = sys->accWeight * linearMotionWeight;
-        } else {
-            // Gradually decay linear motion detection
-            sys->isLinearMotion = false;
-            sys->linearAccMagnitude = sys->linearAccMagnitude * sys->params.linearMotionDecay;
+
+        // --- Mechanism 1: Direction-based detection ---
+        // Use gyro-predicted gravity to detect when accel direction is wrong,
+        // even if magnitude is ~1g (catches centripetal / constant-velocity turns).
+        const FusionVector gravPredicted = GravityBody(sys->quaternion, sys->convention);
+        const float gravMagSq = FusionVectorMagnitudeSquared(gravPredicted);
+        const float accMagSqDir = FusionVectorMagnitudeSquared(acc);
+
+        if ((gravMagSq > 1e-6f) && (accMagSqDir > 1e-6f)) {
+            const FusionVector gravNorm = FusionVectorMultiplyScalar(gravPredicted,
+                FusionFastInverseSqrt(gravMagSq));
+            const FusionVector accNormDir = FusionVectorMultiplyScalar(acc,
+                FusionFastInverseSqrt(accMagSqDir));
+
+            // cos(angle) = dot(accNorm, gravNorm)
+            const float cosAngle = ClampFloat(
+                FusionVectorDotProduct(accNormDir, gravNorm), -1.0f, 1.0f);
+
+            // Use 1 - cos as a cheap proxy for angle^2/2 (avoids acosf)
+            sys->accDirectionError = 1.0f - cosAngle;
+
+            if (sys->accDirectionError > sys->params.accDirectionThreshold) {
+                // Direction mismatch: translational acceleration present
+                // Scale R proportional to direction error
+                const float dirScale = 1.0f + sys->params.accDirectionScale *
+                    sys->accDirectionError;
+                sys->accWeight *= (1.0f / dirScale);
+            }
+        }
+
+        // --- Mechanism 2: Paddling / periodic vibration detection ---
+        // High short-window variance + mean near 1g = periodic vibration.
+        // Gate accel updates by dramatically increasing R.
+        {
+            const float alpha = sys->params.paddlingWindowAlpha;
+            const float magDelta = accMag - sys->accMeanWindow;
+
+            // Exponential moving average of mean and variance
+            sys->accMeanWindow += alpha * magDelta;
+            sys->accVarWindow += alpha * (magDelta * magDelta - sys->accVarWindow);
+
+            const float meanError = fabsf(sys->accMeanWindow - 1.0f);
+
+            if ((sys->accVarWindow > sys->params.paddlingVarThreshold) &&
+                (meanError < sys->params.paddlingMeanTolerance)) {
+                // Periodic vibration detected: high variance but mean ≈ 1g
+                sys->isPaddling = true;
+                sys->accWeight *= (1.0f / sys->params.paddlingRScale);
+            } else {
+                sys->isPaddling = false;
+            }
+        }
+
+        // --- Mechanism 3: Sustained linear acceleration (residual-based) ---
+        // Use gyro-predicted gravity direction to estimate linear acceleration.
+        // Don't rely on fixed decay — use the actual measured residual.
+        {
+            const FusionVector gravBody = GravityBody(sys->quaternion, sys->convention);
+            // linear_acc = measured_acc - predicted_gravity
+            sys->linearAccBody = FusionVectorSubtract(acc, gravBody);
+            const float residualMag = FusionVectorMagnitude(sys->linearAccBody);
+
+            // EMA of residual for smooth sustained detection
+            const float salpha = sys->params.sustainedLinearAlpha;
+            sys->linearAccMagnitude = sys->linearAccMagnitude * (1.0f - salpha)
+                                    + residualMag * salpha;
+
+            if (sys->linearAccMagnitude > sys->params.linearAccThreshold) {
+                sys->isLinearMotion = true;
+                const float sustainedScale = sys->linearAccMagnitude /
+                    sys->params.linearAccThreshold;
+                sys->accWeight *= (1.0f / sustainedScale);
+            } else {
+                sys->isLinearMotion = false;
+            }
         }
     }
-    // ===== END LINEAR MOTION =====
+    // ===== END TRANSLATIONAL ACCELERATION COMPENSATION =====
 
     EkfPredict(sys, gyro, dt);
     EkfUpdateAccel(sys, acc);
 
+    // Note: gyro bias is estimated by the EKF state vector (updated in EkfUpdateAccel).
+    // A separate LPF bias update here would conflict with the EKF estimate.
+    // Only apply supplementary static bias correction when EKF P diagonal for bias
+    // states is large (EKF has not yet converged on bias).
     if (sys->motionState == TACTICAL_MOTION_STATIC) {
-        const float alpha = ClampFloat(sys->params.gyroBiasAlpha, 0.0f, 1.0f);
-        sys->gyroBias.axis.x += (gyro.axis.x - sys->gyroBias.axis.x) * alpha;
-        sys->gyroBias.axis.y += (gyro.axis.y - sys->gyroBias.axis.y) * alpha;
-        sys->gyroBias.axis.z += (gyro.axis.z - sys->gyroBias.axis.z) * alpha;
+        const float biasUncertainty = sys->P[3][3] + sys->P[4][4] + sys->P[5][5];
+        if (biasUncertainty > 1.0e-3f) {
+            const float alpha = ClampFloat(sys->params.gyroBiasAlpha, 0.0f, 1.0f);
+            sys->gyroBias.axis.x += (gyro.axis.x - sys->gyroBias.axis.x) * alpha;
+            sys->gyroBias.axis.y += (gyro.axis.y - sys->gyroBias.axis.y) * alpha;
+            sys->gyroBias.axis.z += (gyro.axis.z - sys->gyroBias.axis.z) * alpha;
+        }
     }
 
     FusionVector earthAcc = Tactical_GetEarthAcceleration(sys, acc);

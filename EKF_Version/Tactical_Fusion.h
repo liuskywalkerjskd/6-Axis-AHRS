@@ -73,6 +73,15 @@ typedef struct {
     float linearAccMagnitude;          // Magnitude of linear acceleration
     bool isLinearMotion;              // Flag indicating linear motion detected
 
+    // Direction-based translational acceleration detection
+    float accDirectionError;           // Angle between measured acc and predicted gravity (rad)
+
+    // Paddling / periodic vibration detection
+    float accVarWindow;                // Short-window accel magnitude variance
+    float accMeanWindow;               // Short-window accel magnitude mean
+    float accVarWindowAlpha;           // EMA alpha for windowed variance
+    bool isPaddling;                   // Periodic vibration detected
+
     DigitalFilter hpFilterVel;
     DigitalFilter hpFilterPos;
     float verticalAccBias;
@@ -115,6 +124,18 @@ typedef struct {
         float linearMotionDecay;         // Decay rate for linear acceleration estimation
         float accCompensationEnabled;    // Enable acceleration compensation
 
+        // Direction-based detection parameters
+        float accDirectionThreshold;     // Direction error threshold (rad) for translational acc
+        float accDirectionScale;         // R multiplier scale for direction error
+
+        // Paddling / periodic vibration parameters
+        float paddlingVarThreshold;      // Variance threshold to detect periodic vibration
+        float paddlingMeanTolerance;     // How close mean must be to 1g to qualify as paddling
+        float paddlingRScale;            // R multiplier during paddling detection
+        float paddlingWindowAlpha;       // EMA alpha for variance window (~0.5s window)
+
+        // Sustained linear acceleration parameters
+        float sustainedLinearAlpha;      // EMA alpha for residual-based sustained detection
 
     } params;
 } TacticalSystem;
